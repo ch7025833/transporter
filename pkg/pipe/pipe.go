@@ -9,7 +9,7 @@ package pipe
 import (
 	"regexp"
 	"time"
-
+	"fmt"
 	"github.com/compose/transporter/pkg/events"
 	"github.com/compose/transporter/pkg/message"
 )
@@ -87,12 +87,13 @@ func (m *Pipe) Listen(fn func(*message.Msg) (*message.Msg, error), nsFilter *reg
 
 		select {
 		case msg := <-m.In:
+			
 			if match, err := msg.MatchNamespace(nsFilter); !match || err != nil {
 				if err != nil {
 					m.Err <- err
 					return err
 				}
-
+			
 			} else {
 				outmsg, err := fn(msg)
 				if err != nil {
@@ -103,7 +104,15 @@ func (m *Pipe) Listen(fn func(*message.Msg) (*message.Msg, error), nsFilter *reg
 					break
 				}
 				if len(m.Out) > 0 {
-					m.Send(outmsg)
+					if len(outmsg.DataList) > 0{
+						datalist := outmsg.DataList
+						fmt.Printf("event message length is %v\n", len(datalist))
+						for i := 0; i < len(datalist); i++{
+							m.Send(&datalist[i])
+						}
+					}else{
+						m.Send(outmsg)
+					}	
 				} else {
 					m.MessageCount++ // update the count anyway
 				}
@@ -114,6 +123,7 @@ func (m *Pipe) Listen(fn func(*message.Msg) (*message.Msg, error), nsFilter *reg
 		}
 	}
 }
+
 
 // Stop terminates the channels listening loop, and allows any timeouts in send to fail
 func (m *Pipe) Stop() {
@@ -132,6 +142,7 @@ func (m *Pipe) Stop() {
 // Send emits the given message on the 'Out' channel.  the send Timesout after 100 ms in order to chaeck of the Pipe has stopped and we've been asked to exit.
 // If the Pipe has been stopped, the send will fail and there is no guarantee of either success or failure
 func (m *Pipe) Send(msg *message.Msg) {
+	//fmt.Printf("send msg : %v\n", msg)
 	for _, ch := range m.Out {
 
 	A:
@@ -140,6 +151,8 @@ func (m *Pipe) Send(msg *message.Msg) {
 			case ch <- msg:
 				m.MessageCount++
 				m.LastMsg = msg
+				//fmt.Printf("message count : %v\n", m.MessageCount)
+				//fmt.Printf("last message : %v\n", m.LastMsg)
 				break A
 			case <-time.After(100 * time.Millisecond):
 				if m.Stopped {

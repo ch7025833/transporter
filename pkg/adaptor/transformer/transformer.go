@@ -90,7 +90,7 @@ func (t *Transformer) Connect() error {
 // transformers it into mejson, and then uses the supplied javascript module.exports function
 // to transform the document.  The document is then emitted to this adaptor's children
 func (t *Transformer) Listen() (err error) {
-	return t.pipe.Listen(t.transformOne, t.ns)
+	return t.pipe.Listen(t.transform, t.ns)
 }
 
 // initEvironment prepares the javascript vm and compiles the transformer script
@@ -126,7 +126,10 @@ func (t *Transformer) Stop() error {
 	return nil
 }
 
-func (t *Transformer) transformOne(msg *message.Msg) (*message.Msg, error) {
+//transform function
+func (t *Transformer) transform(msg *message.Msg) (*message.Msg, error){
+
+	//fmt.Printf("start transform with msg : %v\n", msg)
 
 	var (
 		doc    interface{}
@@ -135,11 +138,6 @@ func (t *Transformer) transformOne(msg *message.Msg) (*message.Msg, error) {
 		result interface{}
 		err    error
 	)
-
-	// short circuit for deletes and commands
-	if msg.Op == message.Command {
-		return msg, nil
-	}
 
 	now := time.Now().Nanosecond()
 	currMsg := map[string]interface{}{
@@ -168,11 +166,15 @@ func (t *Transformer) transformOne(msg *message.Msg) (*message.Msg, error) {
 		t.pipe.Err <- t.transformerError(adaptor.ERROR, err, msg)
 		return msg, nil
 	}
+	
+	//fmt.Printf("the out doc is %v", outDoc)
 
 	if result, err = outDoc.Export(); err != nil {
 		t.pipe.Err <- t.transformerError(adaptor.ERROR, err, msg)
 		return msg, nil
 	}
+	
+	//fmt.Printf("the out result is %v", result)
 
 	afterVM := time.Now().Nanosecond()
 
@@ -189,6 +191,27 @@ func (t *Transformer) transformOne(msg *message.Msg) (*message.Msg, error) {
 	return msg, nil
 }
 
+func (t *Transformer) transformOne(msg *message.Msg) (*message.Msg, error) {
+
+	return msg, nil
+}
+
+
+
+func (t *Transformer) createNewMsg(msg *message.Msg, input map[string]interface{}) message.Msg {
+
+	m := message.Msg{
+		Timestamp: msg.Timestamp,
+		Op:        msg.Op,
+		Data:      input,
+		Namespace: msg.Namespace,
+	}
+
+	return m
+
+}
+
+
 func (t *Transformer) toMsg(incoming interface{}, msg *message.Msg) error {
 
 	switch newMsg := incoming.(type) {
@@ -196,7 +219,28 @@ func (t *Transformer) toMsg(incoming interface{}, msg *message.Msg) error {
 		msg.Op = message.OpTypeFromString(newMsg["op"].(string))
 		msg.Timestamp = newMsg["ts"].(int64)
 		msg.Namespace = newMsg["ns"].(string)
-
+		switch listData := newMsg["dataList"].(type) {
+		case otto.Value:
+			exported, err := listData.Export()
+			if err != nil {
+				t.pipe.Err <- t.transformerError(adaptor.ERROR, err, msg)
+				return nil
+			}
+			list, ok := exported.([]map[string]interface{})
+			if ok {
+				length := len(list);
+				slice := make([]message.Msg, length)
+				for i := 0; i<length; i++{
+					d, err := mejson.Unmarshal(list[i])
+					if err != nil {
+						t.pipe.Err <- t.transformerError(adaptor.ERROR, err, msg)
+						return nil
+					}
+					slice[i] = t.createNewMsg(msg, map[string]interface{}(d))
+				}
+				msg.DataList = slice
+			}
+		}
 		switch data := newMsg["data"].(type) {
 		case otto.Value:
 			exported, err := data.Export()
@@ -217,6 +261,7 @@ func (t *Transformer) toMsg(incoming interface{}, msg *message.Msg) error {
 				return nil
 			}
 			msg.Data = map[string]interface{}(d)
+		
 		default:
 			msg.Data = data
 		}
@@ -228,7 +273,7 @@ func (t *Transformer) toMsg(incoming interface{}, msg *message.Msg) error {
 	default: // something went wrong
 		return fmt.Errorf("returned doc was not a map[string]interface{}")
 	}
-
+	
 	return nil
 }
 

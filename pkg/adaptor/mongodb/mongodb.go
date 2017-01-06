@@ -369,7 +369,9 @@ func (m *Mongodb) catData() (err error) {
 				}
 
 				// set up the message
+				
 				msg := message.NewMsg(message.Insert, result, m.computeNamespace(collection))
+				fmt.Printf("cat data from mongodb and the msg is %v\n", result)
 
 				m.pipe.Send(msg)
 				result = bson.M{}
@@ -413,6 +415,7 @@ func (m *Mongodb) tailData() (err error) {
 				return
 			}
 			if result.validOp() {
+				
 				db, coll, _ := m.splitNamespace(result.Ns)
 				
 				if db != m.database {
@@ -423,6 +426,7 @@ func (m *Mongodb) tailData() (err error) {
 				} else if match := m.collectionMatch.MatchString(coll); !match {
 					continue
 				}
+				fmt.Printf("the result of good op log with database %v and collection %v and result is %v\n", db, coll, result)
 
 				var doc bson.M
 				switch result.Op {

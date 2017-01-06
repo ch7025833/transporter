@@ -22,6 +22,7 @@ type Msg struct {
 	Timestamp int64
 	Op        OpType
 	Data      interface{}
+	DataList  []Msg
 	Namespace string
 }
 
